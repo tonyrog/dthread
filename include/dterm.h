@@ -1,6 +1,7 @@
 #ifndef __DTERM_H__
 #define __DTERM_H__
 
+#include <stdio.h>
 #include "dlib.h"
 
 struct _dterm_t;
@@ -40,6 +41,10 @@ extern void dterm_finish(dterm_t* p);
 extern int dterm_expand(dterm_t* p, size_t n);
 extern void* dterm_link_alloc_data(dterm_t* p, size_t size);
 extern void* dterm_link_copy_data(dterm_t* p, void* src, size_t size);
+
+extern int dterm_dyn_size(ErlDrvTermData* spec, int len);
+extern char* dterm_dyn_copy(ErlDrvTermData* spec, int len, char* ptr);
+extern int dterm_dump(FILE*, ErlDrvTermData* spec, int len);
 
 extern void dterm_kv_int(dterm_t* t,ErlDrvTermData key, ErlDrvSInt value);
 extern void dterm_kv_uint(dterm_t* t,ErlDrvTermData key, ErlDrvUInt value);

@@ -29,11 +29,11 @@ typedef struct _dmessage_t
     struct _dmessage_t*  next;  // next message in queue
     int                   cmd;  // same as ctl 
     struct _dthread_t* source;  // sender thread
+    void (*release)(struct _dmessage_t*);  // release hook
     ErlDrvTermData       from;  // sender pid
     ErlDrvTermData        to;   // receiver pid (if any)
     ErlDrvTermData        ref;  // sender ref
     void* udata;                // user data
-    void (*release)(char*, size_t, void*);  // buffer release function
     size_t size;          // total allocated size of buffer
     size_t used;          // total used part of buffer
     char*  buffer;        // points to data or allocated
@@ -49,8 +49,6 @@ typedef struct _dthread_t {
     ErlDrvTermData caller;      // last caller (driver_caller)
     ErlDrvTermData    ref;      // last sender ref
     int       smp_support;      // SMP support or not
-    ErlDrvTermData    am_ok;    // 'ok'
-    ErlDrvTermData    am_error; // 'error'
 
     // Input queue
     ErlDrvMutex*   iq_mtx;       // message queue lock
@@ -73,7 +71,7 @@ extern void dthread_lib_finish(void);
 extern dmessage_t* dmessage_alloc(size_t n);
 extern void dmessage_free(dmessage_t* mp);
 extern dmessage_t* dmessage_create_r(int cmd, 
-				     void (*release)(char*, size_t, void*),
+				     void (*release)(dmessage_t*),
 				     void* udata,
 				     char* buf, size_t len);
 extern dmessage_t* dmessage_create(int cmd,char* buf, size_t len);

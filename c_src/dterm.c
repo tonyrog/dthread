@@ -37,6 +37,213 @@ void dterm_init(dterm_t* p)
     p->mark      = 0;
 }
 
+int dterm_dump(FILE* f, ErlDrvTermData* spec, int len)
+{
+    int i = 0;
+    while(i < len) {
+	switch(spec[i]) {
+	case ERL_DRV_NIL:
+	    fprintf(f, "%d: NIL\r\n", i);
+	    i += 1;
+	    break;	    
+	case ERL_DRV_INT:
+	    fprintf(f, "%d: INT %d\r\n", i, (int)spec[1]);
+	    i += 2;
+	    break;
+	case ERL_DRV_UINT:
+	    fprintf(f, "%d: UINT %u\r\n", i, (unsigned)spec[1]);
+	    i += 2;
+	    break;
+	case ERL_DRV_ATOM:
+	    fprintf(f, "%d: ATOM %u\r\n", i, (unsigned)spec[1]);
+	    i += 2;
+	    break;
+	case ERL_DRV_PORT:
+	    fprintf(f, "%d: PORT %u\r\n", i, (unsigned)spec[1]);
+	    i += 2;
+	    break;
+	case ERL_DRV_PID:
+	    fprintf(f, "%d: PID %u\r\n", i, (unsigned)spec[1]);
+	    i += 2;
+	    break;
+	case ERL_DRV_TUPLE:
+	    fprintf(f, "%d: TUPLE %u\r\n", i,(unsigned)spec[1]);
+	    i += 2;
+	    break;
+	case ERL_DRV_LIST:
+	    fprintf(f, "%d: LIST %u\r\n", i, (unsigned)spec[1]);
+	    i += 2;
+	    break;
+	case ERL_DRV_INT64:
+	    fprintf(f, "%d: INT64 %lld\r\n", i,
+		    *(ErlDrvSInt64*)spec[1]);
+	    i += 2;
+	    break;	    
+	case ERL_DRV_UINT64:
+	    fprintf(f, "%d: UINT64 %llu\r\n", i,
+		    *(ErlDrvUInt64*)spec[1]);
+	    i += 2;
+	    break;
+	case ERL_DRV_FLOAT:
+	    fprintf(f, "%d: FLOAT %f\r\n", i,
+		    *(double*)spec[1]);
+	    i += 2;
+	    break;
+	case ERL_DRV_STRING:
+	    fprintf(f, "%d: STRING %d \"%s\"\r\n", i,
+		    (int)spec[i+2], (char*)spec[i+1]);
+	    i += 3;
+	    break;
+	case ERL_DRV_STRING_CONS:
+	    fprintf(f, "%d: STRING_CONS %d \"%s\"\r\n", i,
+		    (int)spec[i+2], (char*)spec[i+1]);
+	    i += 3;
+	    break;
+	case ERL_DRV_BUF2BINARY:
+	    fprintf(f, "%d: BUF2BINARY_CONS %d <<%s>>\r\n", i,
+		    (int)spec[i+2], (char*)spec[i+1]);
+	    i += 3;
+	    break;
+	case ERL_DRV_BINARY:
+	    fprintf(f, "%d: BINARY\r\n", i);
+	    // not yet!!!
+	    i += 4;
+	    return -1;
+	default:
+	    return -1;
+	}
+    }
+    return (int) 0;    
+}
+
+
+// Calculate the size of pointer portion
+// When sending a message in the non SMP buffer and data are copied
+int dterm_dyn_size(ErlDrvTermData* spec, int len)
+{
+    size_t n = 0;
+    int i = 0;
+
+    while(i < len) {
+	switch(spec[i]) {
+	case ERL_DRV_NIL:
+	    i++;
+	    break;	    
+	case ERL_DRV_INT:
+	case ERL_DRV_UINT:
+	case ERL_DRV_ATOM:
+	case ERL_DRV_PORT:
+	case ERL_DRV_PID:
+	case ERL_DRV_TUPLE:
+	case ERL_DRV_LIST:
+	    i += 2;
+	    break;
+	case ERL_DRV_INT64:
+	    n += sizeof(ErlDrvSInt64);
+	    i += 2;
+	    break;	    
+	case ERL_DRV_UINT64:
+	    n += sizeof(ErlDrvUInt64);
+	    i += 2;
+	    break;
+	case ERL_DRV_FLOAT:
+	    n += sizeof(double);
+	    i += 2;
+	    break;
+	case ERL_DRV_STRING:
+	    n += spec[i+2];
+	    i += 3;
+	    break;
+	case ERL_DRV_STRING_CONS:
+	    n += spec[i+2];
+	    i += 3;
+	    break;
+	case ERL_DRV_BUF2BINARY:
+	    n += spec[i+2];
+	    i += 3;
+	    break;
+	case ERL_DRV_BINARY:
+	    // not yet!!!
+	    n += spec[i+2];
+	    i += 4;
+	    return -1;
+	    break;
+	default:
+	    return -1;
+	}
+    }
+    return (int) n;
+}
+
+// When sending a message in the non SMP buffer and data are copied
+char* dterm_dyn_copy(ErlDrvTermData* spec, int len, char* ptr)
+{
+    int i = 0;
+    while(i < len) {
+	switch(spec[i]) {
+	case ERL_DRV_NIL:
+	    i++;
+	    break;	    
+	case ERL_DRV_INT:
+	case ERL_DRV_UINT:
+	case ERL_DRV_ATOM:
+	case ERL_DRV_PORT:
+	case ERL_DRV_PID:
+	case ERL_DRV_TUPLE:
+	case ERL_DRV_LIST:
+	    i += 2;
+	    break;
+	case ERL_DRV_INT64:
+	    memcpy(ptr, (void*)spec[i+1], sizeof(ErlDrvSInt64));
+	    spec[i+1] = (ErlDrvTermData) ptr;
+	    ptr += sizeof(ErlDrvSInt64);
+	    i += 2;
+	    break;	    
+	case ERL_DRV_UINT64:
+	    memcpy(ptr, (void*)spec[i+1], sizeof(ErlDrvUInt64));
+	    spec[i+1] = (ErlDrvTermData) ptr;
+	    ptr += sizeof(ErlDrvUInt64);
+	    i += 2;
+	    break;
+	case ERL_DRV_FLOAT:
+	    memcpy(ptr, (void*)spec[i+1], sizeof(double));
+	    spec[i+1] = (ErlDrvTermData) ptr;
+	    ptr += sizeof(double);
+	    i += 2;
+	    break;
+	case ERL_DRV_STRING:
+	    memcpy(ptr, (void*)spec[i+1], spec[i+2]);
+	    spec[i+1] = (ErlDrvTermData) ptr;
+	    ptr += spec[i+2];
+	    i += 3;
+	    break;
+	case ERL_DRV_STRING_CONS:
+	    memcpy(ptr, (void*)spec[i+1], spec[i+2]);
+	    spec[i+1] = (ErlDrvTermData) ptr;
+	    ptr += spec[i+2];
+	    i += 3;
+	    break;
+	case ERL_DRV_BUF2BINARY:
+	    memcpy(ptr, (void*)spec[i+1], spec[i+2]);
+	    spec[i+1] = (ErlDrvTermData) ptr;
+	    ptr += spec[i+2];
+	    i += 3;
+	    break;
+	case ERL_DRV_BINARY:
+	    // wont work yet! (maybe change to BUF2BINARY)
+	    ptr += spec[i+2];
+	    i += 4;
+	    return NULL;
+	    break;
+	default:
+	    return NULL;
+	}
+    }
+    return ptr;
+}
+
+
+
 // dynamic allocation of dterm_t structure, the data part is
 // can be less the DTERM_FIXED in this case
 dterm_t* dterm_alloc(size_t size)

@@ -20,11 +20,15 @@
 #include <ctype.h>
 
 static ErlDrvTermData am_data;
+static ErlDrvTermData am_ok;
+static ErlDrvTermData am_error;
 
 void dthread_lib_init()
 {
     dterm_lib_init();
     am_data = driver_mk_atom("data");
+    am_ok = driver_mk_atom("ok");
+    am_error = driver_mk_atom("error");
 }
 
 void dthread_lib_finish()
@@ -53,15 +57,15 @@ dmessage_t* dmessage_alloc(size_t n)
 void dmessage_free(dmessage_t* mp)
 {
     if (mp->release)
-	(*mp->release)(mp->buffer, mp->size, mp->udata);
-    else if ((mp->buffer < mp->data) || (mp->buffer > mp->data+mp->size))
+	(*mp->release)(mp);
+    if ((mp->buffer < mp->data) || (mp->buffer > mp->data+mp->size))
 	DFREE(mp->buffer);
     DFREE(mp);
 }
 
 // create a message with optional dynamic buffer
 dmessage_t* dmessage_create_r(int cmd, 
-			      void (*release)(char*, size_t, void*),
+			      void (*release)(dmessage_t*),
 			      void* udata,
 			      char* buf, size_t len)
 {
@@ -215,8 +219,6 @@ int dthread_init(dthread_t* thr, ErlDrvPort port)
     // calling process. if SMP is supported the message will go
     // directly to sender, otherwise it must be sent to port 
     thr->smp_support = sys_info.smp_support;
-    thr->am_ok = driver_mk_atom("ok");
-    thr->am_error = driver_mk_atom("error");
     thr->port = port;
     thr->dport = driver_mk_port(port);
     thr->owner = driver_connected(port);
@@ -545,7 +547,11 @@ int dthread_output(dthread_t* thr, dthread_t* source,
     return dthread_control(thr, source, DTHREAD_OUTPUT, buf, len);
 }
 
-
+static void release_xptr_func(dmessage_t* mp)
+{
+    DEBUGF("release_xptr_func called");
+    DFREE(mp->udata);
+}
 
 int dthread_port_send_term(dthread_t* thr, dthread_t* source, 
 			   ErlDrvTermData target,
@@ -555,15 +561,27 @@ int dthread_port_send_term(dthread_t* thr, dthread_t* source,
 	return driver_send_term(thr->port, target, spec, len);
     else {
 	dmessage_t* mp;
+	int xsz = dterm_dyn_size(spec, len);
+	if (xsz < 0)
+	    return -1;
 	mp = dmessage_create(DTHREAD_SEND_TERM,(char*)spec,
 			     len*sizeof(ErlDrvTermData));
+	if (xsz > 0) {
+	    char* xptr = DALLOC(xsz);
+	    if ((dterm_dyn_copy((ErlDrvTermData*)mp->buffer, 
+				len, xptr)) == NULL)
+		return -1;
+	    mp->udata = xptr;
+	    mp->release = release_xptr_func;
+	}
 	mp->to = target;
+	// dterm_dump(stderr, (ErlDrvTermData*) mp->buffer, mp->used / sizeof(ErlDrvTermData));
 	return dthread_send(thr, source, mp);
     }
 }
 
 int dthread_port_output_term(dthread_t* thr, dthread_t* source, 
-			ErlDrvTermData* spec, int len)
+			     ErlDrvTermData* spec, int len)
 {
     return dthread_port_send_term(thr, source, thr->owner, spec, len);
 }
@@ -571,16 +589,9 @@ int dthread_port_output_term(dthread_t* thr, dthread_t* source,
 int dthread_port_send_dterm(dthread_t* thr, dthread_t* source, 
 			    ErlDrvTermData target, dterm_t* p)
 {
-    size_t len = dterm_used_size(p);
-    if (thr->smp_support)
-	return driver_send_term(thr->port, target, dterm_data(p),len);
-    else {
-	dmessage_t* mp;
-	mp = dmessage_create(DTHREAD_SEND_TERM,(char*)dterm_data(p),
-			     len*sizeof(ErlDrvTermData));
-	mp->to = target;
-	return dthread_send(thr, source, mp);
-    }
+    return dthread_port_send_term(thr, source, target,
+				  dterm_data(p),
+				  dterm_used_size(p));
 }
 
 int dthread_port_output_dterm(dthread_t* thr, dthread_t* source, dterm_t* p)
@@ -599,7 +610,7 @@ int dthread_port_send_ok(dthread_t* thr, dthread_t* source,
     dterm_init(&t);
     dterm_tuple_begin(&t, &m); {
 	dterm_int(&t, ref);
-	dterm_atom(&t, thr->am_ok);
+	dterm_atom(&t, am_ok);
     }
     dterm_tuple_end(&t, &m);
     
@@ -635,7 +646,7 @@ int dthread_port_send_error(dthread_t* thr, dthread_t* source,
     dterm_tuple_begin(&t, &m); {
 	dterm_int(&t, ref);
 	dterm_tuple_begin(&t, &e); {
-	    dterm_atom(&t, thr->am_error);
+	    dterm_atom(&t, am_error);
 	    dterm_atom(&t, error_atom(error));
 	}
 	dterm_tuple_end(&t,&e);
@@ -646,28 +657,6 @@ int dthread_port_send_error(dthread_t* thr, dthread_t* source,
 			       dterm_data(&t), dterm_used_size(&t));
     dterm_finish(&t);
     return r;    
-}
-
-
-// release buffer copy when not used any more (non SMP)
-static void release_spec_5(char* buf, size_t used, void* udata)
-{
-    ErlDrvTermData* spec = (ErlDrvTermData*)buf;
-    (void) used;
-    (void) udata;
-    DEBUGF("dthread: release_spec_5");
-    DFREE((void*)spec[5]);
-}
-
-// release buffer copy when not used any more (non SMP)
-static void release_spec_5_8(char* buf, size_t used, void* udata)
-{
-    ErlDrvTermData* spec = (ErlDrvTermData*)buf;
-    (void) used;
-    (void) udata;
-    DEBUGF("dthread: release_spec_5_8");
-    DFREE((void*)spec[5]);
-    DFREE((void*)spec[8]);
 }
 
 //
@@ -682,7 +671,7 @@ int dthread_port_output(dthread_t* thr, dthread_t* source,
     spec[0] = ERL_DRV_PORT;
     spec[1] = thr->dport;
     spec[2] = ERL_DRV_ATOM;
-    spec[3] = driver_mk_atom("data");
+    spec[3] = am_data;
     spec[4] = ERL_DRV_STRING; // ERL_DRV_BUF2BINARY;
     spec[5] = (ErlDrvTermData) buf;
     spec[6] = (ErlDrvTermData) len;
@@ -691,27 +680,7 @@ int dthread_port_output(dthread_t* thr, dthread_t* source,
     spec[9] = ERL_DRV_TUPLE;
     spec[10] = 2;
 
-    if (thr->smp_support) {
-	int r;
-	r = driver_send_term(thr->port, thr->owner, spec, 11);
-	DEBUGF("dthread_output, driver_send_term = %d", r);
-	return r;
-    }
-    else {
-	dmessage_t* mp;
-	char* buf_copy;
-
-	// make a copy 
-	buf_copy = DALLOC(len);
-	memcpy(buf_copy, buf, len);
-	spec[5] = (ErlDrvTermData) buf_copy;
-
-	mp = dmessage_create(DTHREAD_SEND_TERM,(char*)spec,
-			     11*sizeof(ErlDrvTermData));
-	mp->release = release_spec_5;
-	mp->to = thr->owner;
-	return dthread_send(thr, source, mp);
-    }
+    return dthread_port_send_term(thr, source, thr->owner, spec, 11);
 }
 
 //
@@ -725,8 +694,6 @@ int dthread_port_output2(dthread_t* thr, dthread_t* source,
     // generate {Port, {data, Data}}
     int i = 0;
     ErlDrvTermData spec[16];
-    int r_5 = 0;
-    int r_8 = 0;
     
     spec[i++] = ERL_DRV_PORT;
     spec[i++] = thr->dport;
@@ -735,18 +702,15 @@ int dthread_port_output2(dthread_t* thr, dthread_t* source,
     if (len == 0) {
 	spec[i++] = ERL_DRV_STRING; // ERL_DRV_BUF2BINARY;
 	spec[i++] = (ErlDrvTermData) hbuf;
-	r_5 = 1;
 	spec[i++] = (ErlDrvTermData) hlen;
     }
     else {
 	spec[i++] = ERL_DRV_STRING; // ERL_DRV_BUF2BINARY;
 	spec[i++] = (ErlDrvTermData) buf;
-	r_5 = 1;
 	spec[i++] = (ErlDrvTermData) len;
 	if (hlen) {
 	    spec[i++] = ERL_DRV_STRING_CONS;
 	    spec[i++] = (ErlDrvTermData) hbuf;
-	    r_8 = 1;
 	    spec[i++] = (ErlDrvTermData) hlen;
 	}
     }
@@ -755,36 +719,7 @@ int dthread_port_output2(dthread_t* thr, dthread_t* source,
     spec[i++] = ERL_DRV_TUPLE;
     spec[i++] = 2;
 
-    if (thr->smp_support) {
-	int r;
-	r = driver_send_term(thr->port, thr->owner, spec, i);
-	DEBUGF("dthread_output2, driver_send_term = %d", r);
-	return r;
-    }
-    else {
-	dmessage_t* mp;
-
-	// copy buffer(s)
-	if (r_5) {
-	    char* ptr = DALLOC(spec[6]);
-	    memcpy(ptr, (void*)spec[5], (size_t)spec[6]);
-	    spec[5] = (ErlDrvTermData) ptr;
-	}
-	if (r_8) {
-	    char* ptr = DALLOC(spec[9]);
-	    memcpy(ptr, (void*)spec[8], (size_t)spec[9]);
-	    spec[8] = (ErlDrvTermData) ptr;
-	}
-
-	mp = dmessage_create(DTHREAD_SEND_TERM,(char*)spec,
-			     i*sizeof(ErlDrvTermData));
-	if (r_5 && r_8)
-	    mp->release = release_spec_5_8;
-	else if (r_5)
-	    mp->release = release_spec_5;
-	mp->to = thr->owner;
-	return dthread_send(thr, source, mp);
-    }
+    return dthread_port_send_term(thr, source, thr->owner, spec, i);
 }
 
 //
@@ -799,8 +734,6 @@ int dthread_port_output_binary(dthread_t* thr, dthread_t* source,
     int i = 0;
     ErlDrvTermData spec[16];
     char* buf = bin->orig_bytes + offset;
-    int r_5 = 0;
-    int r_8 = 0;
     
     spec[i++] = ERL_DRV_PORT;
     spec[i++] = thr->dport;
@@ -809,7 +742,6 @@ int dthread_port_output_binary(dthread_t* thr, dthread_t* source,
     if (len == 0) {
 	spec[i++] = ERL_DRV_STRING;
 	spec[i++] = (ErlDrvTermData) hbuf;
-	r_5 = 1;
 	spec[i++] = (ErlDrvTermData) hlen;
     }
     else {
@@ -817,12 +749,10 @@ int dthread_port_output_binary(dthread_t* thr, dthread_t* source,
         // ERL_DRV_STRING | ERL_DRV_BUF2BINARY;
 	spec[i++] = ERL_DRV_STRING; 
 	spec[i++] = (ErlDrvTermData) buf;
-	r_5 = 1;
 	spec[i++] = (ErlDrvTermData) len;
 	if (hlen) {
 	    spec[i++] = ERL_DRV_STRING_CONS;
 	    spec[i++] = (ErlDrvTermData) hbuf;
-	    r_8 = 1;
 	    spec[i++] = (ErlDrvTermData) hlen;
 	}
     }
@@ -830,37 +760,7 @@ int dthread_port_output_binary(dthread_t* thr, dthread_t* source,
     spec[i++] = 2;
     spec[i++] = ERL_DRV_TUPLE;
     spec[i++] = 2;
-
-    if (thr->smp_support) {
-	int r;
-	r = driver_send_term(thr->port, thr->owner, spec, i);
-	DEBUGF("dthread_output2, driver_send_term = %d", r);
-	return r;
-    }
-    else {
-	dmessage_t* mp;
-
-	// copy buffer(s)
-	if (r_5) {
-	    char* ptr = DALLOC(spec[6]);
-	    memcpy(ptr, (void*)spec[5], (size_t)spec[6]);
-	    spec[5] = (ErlDrvTermData) ptr;
-	}
-	if (r_8) {
-	    char* ptr = DALLOC(spec[9]);
-	    memcpy(ptr, (void*)spec[8], (size_t)spec[9]);
-	    spec[8] = (ErlDrvTermData) ptr;
-	}
-
-	mp = dmessage_create(DTHREAD_SEND_TERM,(char*)spec,
-			     i*sizeof(ErlDrvTermData));
-	if (r_5 && r_8)
-	    mp->release = release_spec_5_8;
-	else if (r_5)
-	    mp->release = release_spec_5;
-	mp->to = thr->owner;
-	return dthread_send(thr, source, mp);
-    }
+    return dthread_port_send_term(thr, source, thr->owner, spec, i);
 }
 
 
