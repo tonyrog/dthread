@@ -3,24 +3,9 @@
 //
 
 #include <stdio.h>
-#ifdef __WIN32__
-#include "windows.h"
-#define EAGAIN       ERROR_IO_PENDING
-#define EWOULDBLOCK  ERROR_IO_PENDING
-#define ENOMEM       ERROR_NOT_ENOUGH_MEMORY
-#define EINVAL       ERROR_BAD_ARGUMENTS
-#define EBUSY        ERROR_BUSY
-#define EOVERFLOW    ERROR_TOO_MANY_CMDS
-#define EMSGSIZE     ERROR_NO_DATA
-#define ENOTCONN     ERROR_PIPE_NOT_CONNECTED
-#define EINTR        ERROR_INVALID_AT_INTERRUPT_TIME //dummy
-#else
-#include <unistd.h>
-#include <sys/select.h>
-#endif
 
 #include "erl_driver.h"
-#include "dthread.h"
+#include "../include/dthread.h"
 
 #include <ctype.h>
 #include <stdint.h>
@@ -32,21 +17,21 @@ typedef int  ErlDrvSizeT;
 typedef int  ErlDrvSSizeT;
 #endif
 
-#define DRV_OK       0
-#define DRV_ERROR    1
+#define DTHREAD_OK       0
+#define DTHREAD_ERROR    1
 
-typedef struct _ctx_t
+typedef struct _drv_ctx_t
 {
-    ErlDrvTermData  caller;     // recipient of sync reply
-
     dthread_t self;             // me
     dthread_t* other;           // the thread
-} ctx_t;
+} drv_ctx_t;
 
 ErlDrvEntry dthread_drv_entry;
 
 #ifdef DEBUG
-void emit_error(char* file, int line, ...)
+#include <stdarg.h>
+
+void emit_error(int level, char* file, int line, ...)
 {
     va_list ap;
     char* fmt;
@@ -60,21 +45,6 @@ void emit_error(char* file, int line, ...)
     va_end(ap);
 }
 #endif
-
-static inline void put_uint32(uint8_t* ptr, uint32_t v)
-{
-    ptr[0] = v>>24;
-    ptr[1] = v>>16;
-    ptr[2] = v>>8;
-    ptr[3] = v;
-}
-
-
-static inline void put_uint16(uint8_t* ptr, uint16_t v)
-{
-    ptr[0] = v>>8;
-    ptr[1] = v;
-}
 
 /* general control reply function */
 static ErlDrvSSizeT ctl_reply(int rep, char* buf, ErlDrvSizeT len,
@@ -93,57 +63,22 @@ static ErlDrvSSizeT ctl_reply(int rep, char* buf, ErlDrvSizeT len,
     return len+1;
 }
 
-/* general control error reply function */
-#if 0
-static ErlDrvSSizeT ctl_error(int err, char** rbuf, ErlDrvSizeT rsize)
-{
-    char response[256];		/* Response buffer. */
-    char* s;
-    char* t;
-
-    for (s = erl_errno_id(err), t = response; *s; s++, t++)
-	*t = tolower(*s);
-    return ctl_reply(DRV_ERROR, response, t-response, rbuf, rsize);
-}
-#endif
-
-#if 0
-static ErlDrvTermData error_atom(int err)
-{
-    char errstr[256];
-    char* s;
-    char* t;
-
-    for (s = erl_errno_id(err), t = errstr; *s; s++, t++)
-	*t = tolower(*s);
-    *t = '\0';
-    return driver_mk_atom(errstr);
-}
-#endif
-
 //
 // Main thread function
 //
 void* dthread_dispatch(void* arg)
 {
     dthread_t* self = (dthread_t*) arg;
-    fd_set iset0;
-    int qfd;
+    dterm_t tsender;
 
     DEBUGF("dthread_drv: dthread_dispatch started");
+
+    dterm_init(&tsender);
     
-    FD_ZERO(&iset0);
-    qfd = FD(self->mq_signal[0]);
-    FD_SET(qfd, &iset0);
-
     while(1) {
-	fd_set iset;
 	int r;
-	int nfds;
 
-	FD_COPY(&iset0, &iset);
-	nfds = qfd+1;
-	r = select(nfds, &iset, NULL, NULL, NULL);
+	r = dthread_poll(self, NULL, NULL, -1);
 	if (r < 0) {
 	    DEBUGF("dthread_drv: dthread_dispatch select failed=%d", r);
 	    continue;
@@ -152,30 +87,75 @@ void* dthread_dispatch(void* arg)
 	    DEBUGF("dthread_drv: dthread_dispatch timeout");
 	    continue;
 	}
-	if (FD_ISSET(qfd, &iset)) {
-	    dmessage_t* mp = dthread_recv(self, NULL);
+	else {
+	    dmessage_t* mp;
+
+	    DEBUGF("dthread_drv: dthread_dispatch r=%d", r);
+	    if ((mp = dthread_recv(self, NULL)) == NULL) {
+		DEBUGF("dthread_drv: message was NULL");
+		continue;
+	    }
 
 	    switch(mp->cmd) {
-	    case DTHREAD_CMD_STOP:
+	    case DTHREAD_STOP:
 		DEBUGF("dthread_drv: dthread_dispatch STOP");
 		dmessage_free(mp);
+		dterm_finish(&tsender);
 		dthread_exit(0);
 		break;
+
+	    case DTHREAD_OUTPUT:
+		DEBUGF("dthread_drv: dthread_dispatch OUTPUT");
+		break;
+
 	    case 1:
 		DEBUGF("dthread_drv: dthread_dispatch cmd=1");
-		dthread_output(mp->source, self, "HELLO WORLD", 11);
+		dthread_port_output(mp->source, self, "HELLO WORLD", 11);
 		break;
+
 	    case 2: {
 		DEBUGF("dthread_drv: dthread_dispatch cmd=2");
-		ErlDrvTermData spec[5];
-		spec[0] = driver_mk_atom("x");
-		spec[1] = driver_mk_atom("y");
-		spec[2] = driver_mk_atom("z");
-		spec[3] = ERL_DRV_TUPLE;
-		spec[4] = 3;
-		dthread_output_term(mp->source, self, spec, 5);
+		dterm_put2(&tsender, ERL_DRV_PORT, self->dport);
+		dterm_put2(&tsender, ERL_DRV_ATOM, driver_mk_atom("data"));
+		dterm_put3(&tsender, ERL_DRV_STRING,
+			   (ErlDrvTermData) "NEW WORLD", (ErlDrvTermData) 9);
+		dterm_put2(&tsender, ERL_DRV_TUPLE, 2);
+		dterm_put2(&tsender, ERL_DRV_TUPLE, 2);
+
+		dthread_port_send_dterm(mp->source, self, mp->from, &tsender);
+		dterm_reset(&tsender);
 		break;
 	    }
+
+	    case 3: {
+		DEBUGF("dthread_drv: dthread_dispatch cmd=3");
+		dterm_put2(&tsender, ERL_DRV_ATOM, driver_mk_atom("x"));
+		dterm_put2(&tsender, ERL_DRV_ATOM, driver_mk_atom("y"));
+		dterm_put2(&tsender, ERL_DRV_ATOM, driver_mk_atom("z"));
+		dterm_put2(&tsender, ERL_DRV_TUPLE, 3);
+		dthread_port_output_dterm(mp->source, self, &tsender);
+		dterm_reset(&tsender);
+		break;
+	    }
+
+	    case 100: {
+		DEBUGF("dthread_dispatch cmd=100");
+		if (mp->used == 4) {
+		    uint8_t* ptr = (uint8_t*)mp->buffer;
+		    uint32_t value = (ptr[0]<<24) | (ptr[1]<<16) |
+			(ptr[2]<<8) | (ptr[3]<<0);
+		    
+		    // usleep(10);  unix only
+		    dterm_put2(&tsender, ERL_DRV_UINT, mp->ref);
+		    dterm_put2(&tsender, ERL_DRV_UINT, value + 1);
+		    dterm_put2(&tsender, ERL_DRV_TUPLE, 2);
+		    
+		    dthread_port_send_dterm(mp->source,self,mp->from,&tsender);
+		    dterm_reset(&tsender);
+		}
+		break;
+	    }
+		
 	    default:
 		DEBUGF("dthread_drv: dthread_dispatch cmd=%d", mp->cmd);
 		break;
@@ -203,15 +183,19 @@ static void dthread_drv_finish(void)
 
 static ErlDrvData dthread_drv_start(ErlDrvPort port, char* command)
 {
-    ctx_t* ctx;
+    (void) command;
+    drv_ctx_t* ctx;
 
     DEBUGF("dthread_drv: start");
 
-    ctx = driver_alloc(sizeof(ctx_t));
+    ctx = driver_alloc(sizeof(drv_ctx_t));
     
     dthread_init(&ctx->self, port);
 
-    ctx->other = dthread_start(port, dthread_dispatch, ctx, 1024);
+    ctx->other = dthread_start(port, dthread_dispatch, ctx, 4096);
+
+    dthread_signal_use(&ctx->self, 1);
+    dthread_signal_select(&ctx->self, 1);
 
     set_port_control_flags(port, PORT_CONTROL_FLAG_BINARY);
 
@@ -221,70 +205,87 @@ static ErlDrvData dthread_drv_start(ErlDrvPort port, char* command)
 
 static void dthread_drv_stop(ErlDrvData d)
 {
-    ctx_t* ctx = (ctx_t*) d;
+    drv_ctx_t* ctx = (drv_ctx_t*) d;
     void* value;
 
     DEBUGF("dthread_drv: stop");
+
     dthread_stop(ctx->other, &ctx->self, &value);
+
+    dthread_signal_use(&ctx->self, 0);
+
     dthread_finish(&ctx->self);
     driver_free(ctx);
 }
 
-static ErlDrvSSizeT dthread_drv_ctl(ErlDrvData d, unsigned int cmd,
-				    char* buf, ErlDrvSizeT len,
-				    char** rbuf, ErlDrvSizeT rsize)
+static ErlDrvSSizeT dthread_drv_control(ErlDrvData d, unsigned int cmd,
+					char* buf, ErlDrvSizeT len,
+					char** rbuf, ErlDrvSizeT rsize)
 {
-    ctx_t* ctx = (ctx_t*) d;
+    drv_ctx_t* ctx = (drv_ctx_t*) d;
     char ref_buf[sizeof(uint32_t)];
+    uint32_t r;
 
     DEBUGF("dthread_drv: ctl: cmd=%u, len=%d", cmd, len);
 
     ctx->self.caller = driver_caller(ctx->self.port);
-    dthread_command(ctx->other, &ctx->self, cmd, buf, len);
+    dthread_control(ctx->other, &ctx->self, cmd, buf, len);
 
-    put_uint32((unsigned char*)ref_buf, (uint32_t) ctx->self.ref);
-    return ctl_reply(DRV_OK, ref_buf, sizeof(ref_buf), rbuf, rsize);
+    r = (uint32_t) ctx->self.ref;
+    ref_buf[0] = r >> 24;
+    ref_buf[1] = r >> 16;
+    ref_buf[2] = r >> 8;
+    ref_buf[3] = r;
+    return ctl_reply(DTHREAD_OK, ref_buf, sizeof(ref_buf), rbuf, rsize);
 }
 
 static void dthread_drv_output(ErlDrvData d, char* buf, ErlDrvSizeT len)
 {
-    (void) d;
-    (void) buf;
-    (void) len;
-    // ctx_t*   ctx = (ctx_t*) d;
+    drv_ctx_t*   ctx = (drv_ctx_t*) d;
 
     DEBUGF("dthread_drv: output");
 
-    // ctx->self.caller = driver_caller(ctx->self.port);
-    // dthread_command(ctx->other, &ctx->self, CMD_SEND, buf, len);    
+    ctx->self.caller = driver_caller(ctx->self.port);
+    dthread_output(ctx->other, &ctx->self, buf, len);
 }
 
 static void dthread_drv_timeout(ErlDrvData d)
 {
     (void) d;
-    // ctx_t* ctx = (ctx_t*) d;
+    // drv_ctx_t* ctx = (drv_ctx_t*) d;
     DEBUGF("dthread_drv: output");
 }
 
 static void dthread_drv_ready_input(ErlDrvData d, ErlDrvEvent e)
 {
-    ctx_t* ctx = (ctx_t*) d;
+    drv_ctx_t* ctx = (drv_ctx_t*) d;
 
-    DEBUGF("dthread_drv: ready_input");
-    if (ctx->self.mq_signal[0] == e) { // got input !
-	dmessage_t* mp = dthread_recv(&ctx->self, NULL);
+    if (ctx->self.iq_signal[0] == e) { // got input !
+	dmessage_t* mp;
+
+	DEBUGF("dthread_drv: ready_input handle=%d", 
+	       DTHREAD_EVENT(ctx->self.iq_signal[0]));
+
+	if (!(mp = dthread_recv(&ctx->self, NULL))) {
+	    DEBUGF("dthread_drv: ready_input signaled with no event! handle=%d",
+		   DTHREAD_EVENT(ctx->self.iq_signal[0]));
+	    return;
+	}
 
 	switch(mp->cmd) {
-	case DTHREAD_CMD_OUTPUT_TERM:
+	case DTHREAD_OUTPUT_TERM:
+	    DEBUGF("dthread_drv: ready_input (OUTPUT_TERM)");
 	    driver_output_term(ctx->self.port, (ErlDrvTermData*) mp->buffer,
 			       mp->used / sizeof(ErlDrvTermData));
 	    break;
-	case DTHREAD_CMD_SEND_TERM:
-	    driver_send_term(ctx->self.port, mp->from, /* orignal from ! */
+	case DTHREAD_SEND_TERM:
+	    DEBUGF("dthread_drv: ready_input (SEND_TERM)");
+	    driver_send_term(ctx->self.port, mp->to, /* orignal from ! */
 			     (ErlDrvTermData*) mp->buffer,
 			     mp->used / sizeof(ErlDrvTermData)); 
 	    break;
-	case DTHREAD_CMD_OUTPUT:
+	case DTHREAD_OUTPUT:
+	    DEBUGF("dthread_drv: ready_input (OUTPUT)");
 	    driver_output(ctx->self.port, mp->buffer, mp->used);
 	    break;
 	default:
@@ -294,10 +295,15 @@ static void dthread_drv_ready_input(ErlDrvData d, ErlDrvEvent e)
 	}
 	dmessage_free(mp);
     }
+    else {
+	DEBUGF("dthread_drv: ready_input (NO MATCH)");
+    }
 }
 
 static void dthread_drv_ready_output(ErlDrvData d, ErlDrvEvent e)
 {
+    (void) d;
+    (void) e;
     DEBUGF("dthread_drv: read_output");
 }
 
@@ -305,11 +311,8 @@ static void dthread_drv_stop_select(ErlDrvEvent event, void* arg)
 {
     (void) arg;
     DEBUGF("dthread_drv: stop_select");
-#ifdef __WIN32__
-    CloseHandle(HD(event));
-#else
-    close(FD(event));
-#endif
+    DEBUGF("dthread_drv: close event=%d", DTHREAD_EVENT(event));
+    dthread_event_close(event);
 }
 
 
@@ -329,7 +332,7 @@ DRIVER_INIT(dthread_drv)
     ptr->ready_output = dthread_drv_ready_output;
     ptr->finish = dthread_drv_finish;
     ptr->driver_name = "dthread_drv";
-    ptr->control = dthread_drv_ctl;
+    ptr->control = dthread_drv_control;
     ptr->timeout = dthread_drv_timeout;
     ptr->extended_marker = ERL_DRV_EXTENDED_MARKER;
     ptr->major_version = ERL_DRV_EXTENDED_MAJOR_VERSION;

@@ -11,16 +11,67 @@
 
 
 open() ->
-    ok = erl_ddll:load_driver(code:priv_dir(dthread), "dthread_drv"),
-    open_port({spawn_driver, dthread_drv}, [binary]).
+    case erl_ddll:load_driver(code:priv_dir(dthread), "dthread_drv") of
+	ok ->
+	    open_port({spawn_driver, dthread_drv}, [binary]);
+	{error,Error} ->
+	    io:format("erl_ddll: error:\n~s\n",
+		      [erl_ddll:format_error(Error)]),
+	    {error, Error}
+    end.
 
 close(Port) ->
     port_close(Port).
 
-test_ctl(Port) ->
+ctl1(Port) ->
     port_control(Port, 1, "hello").
 
-test_command(Port) ->
+ctl2(Port) ->
+    port_control(Port, 2, "olleh").
+
+command1(Port) ->
     port_command(Port, "Hello").
 
+call1(Port, Value) when is_integer(Value) ->
+    ValueBin = <<Value:32>>,
+    Resp = port_control(Port, 100, [ValueBin]),
+    %% io:format("port_control: value=~w, resp = ~w\n", [ValueBin,Resp]),
+    case Resp of
+	<<0, RefNum:32>> ->
+	    %% io:format("wait for ref = ~p\n", [RefNum]),
+	    receive 
+		{RefNum, Value1} ->
+		    {ok,Value1};
+		Other ->
+		    io:format("Got ~p\n", [Other]),
+		    {error, Other}
+	    end;
+	<<1, Error/binary>> ->
+	    {error, binary_to_atom(Error, latin1)}
+    end.
+
+seq_call(Port, N) ->
+    lists:foreach(
+      fun(I) ->
+	      case call1(Port, I) of
+		  {ok,I1} ->
+		      io:format("~w: result (~w)\n", [I,I1]);
+		  Error ->
+		      io:format("~w: result error=~w\n",[I,Error])
+	      end	      
+      end, lists:seq(1, N)).
+
+par_call(Port, N) ->
+    lists:foreach(
+      fun(I) ->
+	      spawn(fun() -> 
+			    io:format("~w: call\n", [I]),
+			    case call1(Port, I) of
+				{ok,I1} ->
+				    io:format("~w: result (~w)\n", [I,I1]);
+				Error ->
+				    io:format("~w: result error=~w\n",[I,Error])
+			    end
+		    end)
+      end, lists:seq(1, N)).
 
