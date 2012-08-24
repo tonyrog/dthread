@@ -5,18 +5,7 @@ struct _dthread_t;
 
 #include "erl_driver.h"
 #include "dterm.h"
-#define DEBUG
 
-extern void dthread_emit_error(int level, char* file, int line, ...);
-extern void dthread_set_debug(int level);
-
-#ifdef DEBUG
-#define DEBUGF(args...) dthread_emit_error(5,__FILE__,__LINE__,args)
-#define INFOF(args...)  dthread_emit_error(3,__FILE__,__LINE__,args)
-#else
-#define DEBUGF(args...)
-#define INFOF(args...)
-#endif
 
 #ifdef __WIN32__
 #define DTHREAD_EVENT(e) ((HANDLE)(e))
@@ -79,6 +68,7 @@ typedef struct _dthread_poll_event_t {
 } dthread_poll_event_t;
 
 extern void dthread_lib_init(void);
+extern void dthread_lib_finish(void);
 
 extern dmessage_t* dmessage_alloc(size_t n);
 extern void dmessage_free(dmessage_t* mp);

@@ -1,22 +1,30 @@
-
-/******************************************************************************
- *
- *  Term (dterm_t)
- *
- *****************************************************************************/
 #include <stddef.h>
+#include <stdio.h>
+#include <stdarg.h>
 #include <memory.h>
 #include "../include/dterm.h"
 
 static ErlDrvTermData am_true;
 static ErlDrvTermData am_false;
 
+
+/******************************************************************************
+ *
+ *  Term (dterm_t)
+ *
+ *****************************************************************************/
+
 void dterm_lib_init()
 {
+    dlib_init();
     am_true = driver_mk_atom("true");
     am_false = driver_mk_atom("false");
 }
 
+void dterm_lib_finish()
+{
+    dlib_finish();
+}
 
 void dterm_init(dterm_t* p)
 {
@@ -37,7 +45,7 @@ dterm_t* dterm_alloc(size_t size)
 	size*sizeof(ErlDrvTermData);
     dterm_t* p;
 
-    if ((p = malloc(sz)) != NULL) {
+    if ((p = DALLOC(sz)) != NULL) {
 	p->dyn_alloc  = 1;
 	p->dyn_size   = size;
 	p->base       = p->data;
@@ -55,7 +63,7 @@ void dterm_reset_links(dterm_t* p)
 	dterm_link_t* lp = p->head;
 	while(lp) {
 	    dterm_link_t* nlp = lp->next;
-	    driver_free(lp);
+	    DFREE(lp);
 	    lp = nlp;
 	}
 	p->head = NULL;
@@ -65,7 +73,7 @@ void dterm_reset_links(dterm_t* p)
 void dterm_finish(dterm_t* p)
 {
     if (p->base != p->data)
-	driver_free(p->base);
+	DFREE(p->base);
     dterm_reset_links(p);
 }
 
@@ -73,7 +81,7 @@ void dterm_free(dterm_t* p)
 {
     dterm_finish(p);
     if (p->dyn_alloc)
-	driver_free(p);
+	DFREE(p);
 }
     
 // reset base pointer & clear link space
@@ -93,11 +101,11 @@ int dterm_expand(dterm_t* p, size_t n)
     ptrdiff_t offset = p->ptr - p->base;  // offset of ptr
 
     if (p->base == p->data) {
-	if ((new_base = driver_alloc(new_sz)) == NULL)
+	if ((new_base = DALLOC(new_sz)) == NULL)
 	    return 0;
 	memcpy(new_base, p->base, old_sz);
     }
-    else if ((new_base = driver_realloc(p->base, new_sz)) == NULL)
+    else if ((new_base = DREALLOC(p->base, new_sz)) == NULL)
 	return 0;
     p->base    = new_base;
     p->ptr     = p->base + offset;
@@ -109,7 +117,7 @@ int dterm_expand(dterm_t* p, size_t n)
 // auxillary space
 void* dterm_link_alloc_data(dterm_t* p, size_t size)
 {
-    dterm_link_t* lp = driver_alloc(sizeof(dterm_link_t)+size);
+    dterm_link_t* lp = DALLOC(sizeof(dterm_link_t)+size);
     lp->next = p->head;
     p->head = lp;
     return (void*) &lp->data[0];

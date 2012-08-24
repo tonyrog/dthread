@@ -1,7 +1,7 @@
 #ifndef __DTERM_H__
 #define __DTERM_H__
 
-#include "erl_driver.h"
+#include "dlib.h"
 
 struct _dterm_t;
 
@@ -32,6 +32,7 @@ typedef struct _dterm_t {
 } dterm_t;
 
 extern void dterm_lib_init(void);
+extern void dterm_lib_finish(void);
 
 extern void dterm_init(dterm_t* p);
 extern void dterm_reset(dterm_t* p);

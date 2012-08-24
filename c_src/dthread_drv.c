@@ -172,6 +172,7 @@ void* dthread_dispatch(void* arg)
 static int dthread_drv_init(void)
 {
     DEBUGF("dthread_drv: driver init");
+    dthread_lib_init();
     return 0;
 }
 
@@ -179,6 +180,7 @@ static int dthread_drv_init(void)
 static void dthread_drv_finish(void)
 {
     DEBUGF("dthread_drv: finish");
+    dthread_lib_finish();
 }
 
 static ErlDrvData dthread_drv_start(ErlDrvPort port, char* command)
@@ -188,7 +190,7 @@ static ErlDrvData dthread_drv_start(ErlDrvPort port, char* command)
 
     DEBUGF("dthread_drv: start");
 
-    ctx = driver_alloc(sizeof(drv_ctx_t));
+    ctx = DALLOC(sizeof(drv_ctx_t));
     
     dthread_init(&ctx->self, port);
 
@@ -215,7 +217,7 @@ static void dthread_drv_stop(ErlDrvData d)
     dthread_signal_use(&ctx->self, 0);
 
     dthread_finish(&ctx->self);
-    driver_free(ctx);
+    DFREE(ctx);
 }
 
 static ErlDrvSSizeT dthread_drv_control(ErlDrvData d, unsigned int cmd,

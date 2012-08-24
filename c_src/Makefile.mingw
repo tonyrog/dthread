@@ -22,7 +22,7 @@ debug: LDFLAGS += -g
 
 DTHREAD_DRV = $(PRIVDIR)/dthread_drv.$(EXT)
 
-DTHREAD_DRV_OBJS = dterm.o dthread.o dthread_drv.o
+DTHREAD_DRV_OBJS = dlib.o dterm.o dthread.o dthread_drv.o
 
 debug release all: $(DTHREAD_DRV)
 

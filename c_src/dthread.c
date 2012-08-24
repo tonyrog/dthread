@@ -15,9 +15,8 @@
 #include <sys/socket.h>
 #endif
 
-#include <stdio.h>
 #include <stddef.h>
-#include <stdarg.h>
+#include <stdio.h>
 #include <ctype.h>
 
 static ErlDrvTermData am_data;
@@ -28,26 +27,9 @@ void dthread_lib_init()
     am_data = driver_mk_atom("data");
 }
 
-static int debug_level = 3;
-
-void dthread_set_debug(int level)
+void dthread_lib_finish()
 {
-    debug_level = level;
-}
-
-void dthread_emit_error(int level, char* file, int line, ...)
-{
-    va_list ap;
-    char* fmt;
-
-    if (level <= debug_level) {
-	va_start(ap, line);
-	fmt = va_arg(ap, char*);
-	fprintf(stderr, "%s:%d: ", file, line); 
-	vfprintf(stderr, fmt, ap);
-	fprintf(stderr, "\r\n");
-	va_end(ap);
-    }
+    dterm_lib_finish();
 }
 
 /******************************************************************************
@@ -59,9 +41,8 @@ void dthread_emit_error(int level, char* file, int line, ...)
 dmessage_t* dmessage_alloc(size_t n)
 {
     size_t sz = sizeof(dmessage_t) + n;
-    dmessage_t* mp = driver_alloc(sz);
+    dmessage_t* mp = DZALLOC(sz);
     if (mp) {
-	memset(mp, 0, sz);
 	mp->buffer = mp->data;
 	mp->used = 0;
 	mp->size = n;
@@ -74,8 +55,8 @@ void dmessage_free(dmessage_t* mp)
     if (mp->release)
 	(*mp->release)(mp->buffer, mp->size, mp->udata);
     else if ((mp->buffer < mp->data) || (mp->buffer > mp->data+mp->size))
-	driver_free(mp->buffer);
-    driver_free(mp);
+	DFREE(mp->buffer);
+    DFREE(mp);
 }
 
 // create a message with optional dynamic buffer
@@ -273,7 +254,7 @@ dthread_t* dthread_start(ErlDrvPort port,
     ErlDrvThreadOpts* opts = NULL;
     dthread_t* thr = NULL;
 
-    if (!(thr = driver_alloc(sizeof(dthread_t))))
+    if (!(thr = DALLOC(sizeof(dthread_t))))
 	return 0;
 
     if (dthread_init(thr, port) < 0)
@@ -295,7 +276,7 @@ error:
     if (opts)
         erl_drv_thread_opts_destroy(opts);
     dthread_finish(thr);
-    driver_free(thr);
+    DFREE(thr);
     return 0;
 }
 
@@ -315,7 +296,7 @@ int dthread_stop(dthread_t* target, dthread_t* source,
 
     dthread_signal_finish(target, 1);
     dthread_finish(target);
-    driver_free(target);
+    DFREE(target);
     return 0;
 }
 
@@ -675,7 +656,7 @@ static void release_spec_5(char* buf, size_t used, void* udata)
     (void) used;
     (void) udata;
     DEBUGF("dthread: release_spec_5");
-    driver_free((void*)spec[5]);
+    DFREE((void*)spec[5]);
 }
 
 // release buffer copy when not used any more (non SMP)
@@ -685,8 +666,8 @@ static void release_spec_5_8(char* buf, size_t used, void* udata)
     (void) used;
     (void) udata;
     DEBUGF("dthread: release_spec_5_8");
-    driver_free((void*)spec[5]);
-    driver_free((void*)spec[8]);
+    DFREE((void*)spec[5]);
+    DFREE((void*)spec[8]);
 }
 
 //
@@ -721,7 +702,7 @@ int dthread_port_output(dthread_t* thr, dthread_t* source,
 	char* buf_copy;
 
 	// make a copy 
-	buf_copy = driver_alloc(len);
+	buf_copy = DALLOC(len);
 	memcpy(buf_copy, buf, len);
 	spec[5] = (ErlDrvTermData) buf_copy;
 
@@ -785,12 +766,12 @@ int dthread_port_output2(dthread_t* thr, dthread_t* source,
 
 	// copy buffer(s)
 	if (r_5) {
-	    char* ptr = driver_alloc(spec[6]);
+	    char* ptr = DALLOC(spec[6]);
 	    memcpy(ptr, (void*)spec[5], (size_t)spec[6]);
 	    spec[5] = (ErlDrvTermData) ptr;
 	}
 	if (r_8) {
-	    char* ptr = driver_alloc(spec[9]);
+	    char* ptr = DALLOC(spec[9]);
 	    memcpy(ptr, (void*)spec[8], (size_t)spec[9]);
 	    spec[8] = (ErlDrvTermData) ptr;
 	}
@@ -861,12 +842,12 @@ int dthread_port_output_binary(dthread_t* thr, dthread_t* source,
 
 	// copy buffer(s)
 	if (r_5) {
-	    char* ptr = driver_alloc(spec[6]);
+	    char* ptr = DALLOC(spec[6]);
 	    memcpy(ptr, (void*)spec[5], (size_t)spec[6]);
 	    spec[5] = (ErlDrvTermData) ptr;
 	}
 	if (r_8) {
-	    char* ptr = driver_alloc(spec[9]);
+	    char* ptr = DALLOC(spec[9]);
 	    memcpy(ptr, (void*)spec[8], (size_t)spec[9]);
 	    spec[8] = (ErlDrvTermData) ptr;
 	}
