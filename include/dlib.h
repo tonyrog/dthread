@@ -3,9 +3,6 @@
 
 #include "erl_driver.h"
 
-#define DEBUG
-#define DEBUG_MEM
-
 extern void dlib_init(void);
 extern void dlib_finish(void);
 
