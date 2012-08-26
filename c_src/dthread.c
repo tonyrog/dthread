@@ -407,6 +407,7 @@ int dthread_poll(dthread_t* thr, dthread_poll_event_t* events, size_t* nevents,
     struct timeval* tp;
     fd_set readfds;
     fd_set writefds;
+    fd_set errorfds;
     int fd,nfds = 0;
     int ready;
     int i,n,iq_len=0;
@@ -420,9 +421,11 @@ int dthread_poll(dthread_t* thr, dthread_poll_event_t* events, size_t* nevents,
     }
     FD_ZERO(&readfds);
     FD_ZERO(&writefds);
+    FD_ZERO(&errorfds);
 
     if ((fd = DTHREAD_EVENT(thr->iq_signal[0])) >= 0) {
 	FD_SET(fd, &readfds);
+	FD_SET(fd, &errorfds);
 	DEBUGF("FD_SET: iq_signal[0] = %d", fd);
 	if (fd > nfds) nfds = fd;
     }
@@ -433,8 +436,10 @@ int dthread_poll(dthread_t* thr, dthread_poll_event_t* events, size_t* nevents,
 	    events[i].revents = 0;  // clear here in case of timeout etc
 	    if (events[i].events) {
 		fd = DTHREAD_EVENT(events[i].event);
-		if (events[i].events & ERL_DRV_READ)
+		if (events[i].events & ERL_DRV_READ) {
 		    FD_SET(fd, &readfds);
+		    FD_SET(fd, &errorfds);
+		}
 		if (events[i].events & ERL_DRV_WRITE)
 		    FD_SET(fd, &writefds);
 		if (fd > nfds) nfds = fd;
@@ -443,7 +448,7 @@ int dthread_poll(dthread_t* thr, dthread_poll_event_t* events, size_t* nevents,
     }
 
     DEBUGF("select nfds=%d, tp=%p", nfds, tp);
-    ready = select(nfds+1, &readfds, &writefds, NULL, tp);
+    ready = select(nfds+1, &readfds, &writefds, &errorfds, tp);
     DEBUGF("select result r=%d", ready);
     if (ready <= 0) {
 	if (nevents)
@@ -467,7 +472,7 @@ int dthread_poll(dthread_t* thr, dthread_poll_event_t* events, size_t* nevents,
 	for (i = 0; ready && (i < n); i++) {
 	    size_t fd_ready = 0;
 	    fd = DTHREAD_EVENT(events[i].event);
-	    if (FD_ISSET(fd, &readfds)) {
+	    if (FD_ISSET(fd, &readfds) || FD_ISSET(fd, &errorfds)) {
 		events[i].revents |= ERL_DRV_READ;
 		fd_ready = 1;
 	    }

@@ -1,20 +1,37 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <memory.h>
 
 #include "../include/dlib.h"
 
-static int    dlib_debug_level   = DLOG_NONE;
 static size_t dlib_num_allocated = 0;
+static size_t dlib_tot_allocated = 0;
+int    dlib_debug_level   = DLOG_NONE;
 
-static ErlDrvMutex* dlib_mtx;
+static ErlDrvMutex* dlib_mtx;  // USE ME
+
+#define MARK   0x5A5A5A5A
+#define FREE   0x0
+#define MAGIC  0xCAFEFEED
+
+typedef struct _dheader_t {
+    uint32_t mark;
+    uint32_t magic;
+    size_t   sz;
+    char*    file;
+    int      line;
+    double   pad;
+    char     data[0];
+}  dheader_t;
 
 void dlib_init()
 {
     dlib_debug_level   = DLOG_NONE;
     dlib_num_allocated = 0;
-    dlib_mtx = erl_drv_mutex_create("dterm_mtx");
+    dlib_tot_allocated = 0;
+    dlib_mtx = erl_drv_mutex_create("dlib_mtx");
 }
 
 void dlib_finish()
@@ -22,96 +39,169 @@ void dlib_finish()
     erl_drv_mutex_destroy(dlib_mtx);
 }
 
-//
-// dlib  utils (move to separate file?)
-//
+// return (known) number of allocated memory
 size_t dlib_allocated(void)
 {
     return dlib_num_allocated;
 }
 
-// allocation utilities 
+// return the the sum of all memory allocations so far
+size_t dlib_total_allocated(void)
+{
+    return dlib_tot_allocated;
+}
+
+void dlib_break_here()
+{
+    exit(1);
+}
+
+// allocate a memory block
+// store | mark | magic | sz | file | line |  .... |
 void* dlib_alloc(size_t sz, char* file, int line)
 {
-    size_t* sptr;
-    if ((sptr = driver_alloc(sizeof(size_t)+sz)) == NULL) {
+    dheader_t* dptr;
+    if ((dptr = driver_alloc(sizeof(dheader_t)+sz)) == NULL) {
 	dlib_emit_error(DLOG_ALERT, file, line, "allocation failed");
+	return NULL;
     }
     else {
-	*sptr++ = sz;
+	dptr->mark  = MARK;
+	dptr->magic = MAGIC;
+	dptr->sz = sz;
+	dptr->file = file;
+	dptr->line = line;
 	dlib_num_allocated += sz;
+	dlib_tot_allocated += sz;
+	return (void*) &dptr->data[0];
     }
-    return (void*) sptr;
 }
 
 void* dlib_zalloc(size_t sz, char* file, int line)
 {
-    size_t* sptr;
-    if ((sptr = driver_alloc(sizeof(size_t)+sz)) == NULL) {
+    dheader_t* dptr;
+    if ((dptr = driver_alloc(sizeof(dheader_t)+sz)) == NULL) {
 	dlib_emit_error(DLOG_ALERT, file, line, "allocation failed");
+	return NULL;
     }
     else {
-	*sptr++ = sz;
-	memset(sptr, '\0', sz);
+	dptr->mark = MARK;
+	dptr->magic = MAGIC;
+	dptr->sz = sz;
+	dptr->file = file;
+	dptr->line = line;
+	memset(&dptr->data[0], '\0', sz);
 	dlib_num_allocated += sz;
+	dlib_tot_allocated += sz;
+	return (void*) &dptr->data[0];
     }
-    return (void*) sptr;
 }
 
 void dlib_free(void* ptr, char* file, int line)
 {
-    size_t* sptr = (size_t*) ptr;
-    if (sptr) {
-	size_t sz0 = *--sptr;
-	if (sz0 > dlib_num_allocated) {
-	    dlib_emit_error(DLOG_EMERGENCY, file, line,
-			       "free more data than allocated");
-	    exit(1);
+    if (ptr) {
+	dheader_t* dptr = (dheader_t*) ((char*)ptr - sizeof(dheader_t));
+	if ((dptr->mark == MARK) && (dptr->magic == MAGIC)) {
+	    if (dptr->sz > dlib_num_allocated) {
+		dlib_emit_error(DLOG_EMERGENCY, file, line,
+				"free more data than allocated");
+		dlib_break_here();
+	    }
+	    dptr->mark = FREE;
+	    dlib_num_allocated -= dptr->sz;
+	    driver_free(dptr);
 	}
-	dlib_num_allocated -= sz0;
-	driver_free(sptr);
+	else if (dptr->magic == MAGIC) {
+	    dlib_emit_error(DLOG_EMERGENCY, file, line,
+			    "block %p already free, allocated by %s:%d",
+			    dptr, dptr->file, dptr->line);
+	    dlib_break_here();
+	}
+	else {
+	    dlib_emit_error(DLOG_EMERGENCY, file, line,
+			    "block %p mark=%x, magic=%x, not dallocated",
+			    dptr, dptr->mark, dptr->magic);
+	    dlib_break_here();
+	}
     }
 }
 
 void* dlib_realloc(void* ptr, size_t sz, char* file, int line)
 {
-    size_t* sptr = (size_t*) ptr;
-    if (sptr) {
-	size_t sz0 = *--sptr;
-	if (sz0 > dlib_num_allocated) {
-	    dlib_emit_error(DLOG_EMERGENCY, file, line,
-			       "realloc more data than allocated");
-	    exit(1);
+    if (ptr) {
+	dheader_t* dptr = (dheader_t*) ((char*)ptr - sizeof(dheader_t));
+	ptr = (void*) dptr;
+	if ((dptr->mark == MARK) && (dptr->magic == MAGIC)) {
+	    dptr->mark = FREE;  // mark potential old segment as FREE
+	    if (dptr->sz > dlib_num_allocated) {
+		dlib_emit_error(DLOG_EMERGENCY, file, line,
+				"realloc release more data than allocated");
+		dlib_break_here();
+	    }
+	    dlib_num_allocated -= dptr->sz;
 	}
-	dlib_num_allocated -= sz0;
-	
+	else if (dptr->magic == MAGIC) {
+	    dlib_emit_error(DLOG_EMERGENCY, file, line,
+			    "block is free, allocated by %s:%d",
+			    dptr->file, dptr->line);
+	    dlib_break_here();
+	}
+	else {
+	    dlib_emit_error(DLOG_EMERGENCY, file, line,
+			    "block %p mark=%x, magic=%x, not dallocated",
+			    dptr, dptr->mark, dptr->magic);
+	    dlib_break_here();
+	}
     }
-    if ((sptr = driver_realloc(sptr, sz+sizeof(size_t))) == NULL)
+    if ((ptr = driver_realloc(ptr, sizeof(dheader_t)+sz)) == NULL) {
 	dlib_emit_error(DLOG_ALERT, file, line, "reallocation failed");
-    else {
-	*sptr++ = sz;
-	dlib_num_allocated += sz;
+	return ptr;
     }
-    return sptr;
+    else {
+	dheader_t* dptr = (dheader_t*) ptr;
+	dptr->mark  = MARK;
+	dptr->magic = MAGIC;
+	dptr->sz = sz;
+	// set last alloaction/reallocation position
+	dptr->file = file;
+	dptr->line = line;
+	dlib_num_allocated += sz;
+	dlib_tot_allocated += sz;
+	return (void*) &dptr->data[0];
+    }
 }
 
 void dlib_zero(void* ptr, size_t sz, char* file, int line)
 {
-    size_t* sptr = (size_t*) ptr;
-    if (sptr) {
-	size_t sz0 = *(sptr-1);
-	if (sz > sz0) {
-	    dlib_emit_error(DLOG_EMERGENCY, file, line, "overwrite heap");
-	    exit(1);
+    if (ptr) {
+	dheader_t* dptr = (dheader_t*) ((char*)ptr - sizeof(dheader_t));
+	if ((dptr->mark == MARK) && (dptr->magic == MAGIC)) {
+	    if (sz > dptr->sz) {
+		dlib_emit_error(DLOG_EMERGENCY, file, line, "overwrite heap");
+		dlib_break_here();
+	    }
+	    memset(&dptr->data[0], '\0', sz);
 	}
-	memset(ptr, '\0', sz);
+	else if (dptr->magic == MAGIC) {
+	    dlib_emit_error(DLOG_EMERGENCY, file, line,
+			    "zero free block, allocated by %s:%d",
+			    dptr->file, dptr->line);
+	    dlib_break_here();
+	}
+	else {
+	    dlib_emit_error(DLOG_EMERGENCY, file, line,
+			    "block %p mark=%x, magic=%x, not dallocated",
+			    dptr, dptr->mark, dptr->magic);
+	    dlib_break_here();
+	}
+    }
+    else {
+	dlib_emit_error(DLOG_EMERGENCY, file, line,
+			"null pointer");
+	dlib_break_here();
     }
 }
 
-size_t dtherad_allocated(void)
-{
-    return dlib_num_allocated;
-}
 
 void dlib_set_debug(int level)
 {
@@ -123,7 +213,8 @@ void dlib_emit_error(int level, char* file, int line, ...)
     va_list ap;
     char* fmt;
 
-    if ((dlib_debug_level >= 0) && (level <= dlib_debug_level)) {
+    if ((level == DLOG_EMERGENCY) ||
+	((dlib_debug_level >= 0) && (level <= dlib_debug_level))) {
 	va_start(ap, line);
 	fmt = va_arg(ap, char*);
 	fprintf(stderr, "%s:%d: ", file, line); 

@@ -9,12 +9,15 @@ extern void dlib_finish(void);
 extern void dlib_emit_error(int level, char* file, int line, ...);
 extern void dlib_set_debug(int level);
 
+extern int dlib_debug_level;
+
 extern void* dlib_alloc(size_t sz, char* file, int line);
 extern void* dlib_zalloc(size_t sz, char* file, int line);
 extern void  dlib_free(void* ptr, char* file, int line);
 extern void* dlib_realloc(void* ptr, size_t sz, char* file, int line);
 extern void  dlib_zero(void* ptr, size_t sz, char* file, int line);
 extern size_t dlib_allocated(void);
+extern size_t dlib_total_allocated(void);
 
 #define DLOG_DEBUG     7
 #define DLOG_INFO      6
@@ -26,13 +29,22 @@ extern size_t dlib_allocated(void);
 #define DLOG_EMERGENCY 0
 #define DLOG_NONE     -1
 
-#ifdef DEBUG
-#define DEBUGF(args...) dlib_emit_error(DLOG_DEBUG,__FILE__,__LINE__,args)
-#define INFOF(args...)  dlib_emit_error(DLOG_INFO,__FILE__,__LINE__,args)
-#else
-#define DEBUGF(args...)
-#define INFOF(args...)
-#endif
+#define DLOG(level,file,line,args...) do { \
+	if (((level) == DLOG_EMERGENCY) ||				\
+	    ((dlib_debug_level >= 0) && ((level) <= dlib_debug_level))) { \
+	    dlib_emit_error((level),(file),(line),args);		\
+	}								\
+    } while(0)
+	
+
+#define DEBUGF(args...) DLOG(DLOG_DEBUG,__FILE__,__LINE__,args)
+#define INFOF(args...)  DLOG(DLOG_INFO,__FILE__,__LINE__,args)
+#define NOTICEF(args...)  DLOG(DLOG_NOTICE,__FILE__,__LINE__,args)
+#define WARNINGF(args...)  DLOG(DLOG_WARNING,__FILE__,__LINE__,args)
+#define ERRORF(args...)  DLOG(DLOG_ERROR,__FILE__,__LINE__,args)
+#define CRITICALF(args...)  DLOG(DLOG_CRITICAL,__FILE__,__LINE__,args)
+#define ALERTF(args...)  DLOG(DLOG_ALERT,__FILE__,__LINE__,args)
+#define EMERGENCYF(args...)  DLOG(DLOG_EMERGENCY,__FILE__,__LINE__,args)
 
 #ifdef DEBUG_MEM
 #define DALLOC(sz)        dlib_alloc((sz),__FILE__,__LINE__)
