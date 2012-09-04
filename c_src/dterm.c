@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <memory.h>
+#include <inttypes.h>
 #include "../include/dterm.h"
 
 static ErlDrvTermData am_true;
@@ -75,12 +76,12 @@ int dterm_dump(FILE* f, ErlDrvTermData* spec, int len)
 	    i += 2;
 	    break;
 	case ERL_DRV_INT64:
-	    fprintf(f, "%d: INT64 %lld\r\n", i,
+	    fprintf(f, "%d: INT64 %" PRId64 "\r\n", i,
 		    *(ErlDrvSInt64*)spec[1]);
 	    i += 2;
 	    break;	    
 	case ERL_DRV_UINT64:
-	    fprintf(f, "%d: UINT64 %llu\r\n", i,
+	    fprintf(f, "%d: UINT64 %" PRIu64 "\r\n", i,
 		    *(ErlDrvUInt64*)spec[1]);
 	    i += 2;
 	    break;

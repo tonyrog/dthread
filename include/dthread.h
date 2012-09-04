@@ -8,6 +8,7 @@ struct _dthread_t;
 
 
 #ifdef __WIN32__
+#include <windows.h>
 #define DTHREAD_EVENT(e) ((HANDLE)(e))
 #define DTHREAD_INVALID_EVENT  ((HANDLE)(-1))
 #define DTHREAD_CLOSE_EVENT(e) CloseHandle(DTHREAD_EVENT(e))

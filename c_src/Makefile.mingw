@@ -22,7 +22,7 @@ debug: LDFLAGS += -g
 
 DTHREAD_DRV = $(PRIVDIR)/dthread_drv.$(EXT)
 
-DTHREAD_DRV_OBJS = dlib.o dterm.o dthread.o dthread_drv.o
+DTHREAD_DRV_OBJS = dlib.obj dterm.obj dthread.obj dthread_drv.obj
 
 debug release all: $(DTHREAD_DRV)
 
@@ -30,5 +30,5 @@ debug release all: $(DTHREAD_DRV)
 $(DTHREAD_DRV): $(DTHREAD_DRV_OBJS) 
 	$(LD_SHARED) -o $@ $(DTHREAD_DRV_OBJS) $(LDFLAGS)
 
-%.$(OBJ): %.c
+%.obj: %.c
 	$(CC) -c -o $@ $(CFLAGS) $<
