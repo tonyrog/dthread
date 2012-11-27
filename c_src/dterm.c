@@ -48,46 +48,46 @@ int dterm_dump(FILE* f, ErlDrvTermData* spec, int len)
 	    i += 1;
 	    break;	    
 	case ERL_DRV_INT:
-	    fprintf(f, "%d: INT %d\r\n", i, (int)spec[1]);
+	    fprintf(f, "%d: INT %d\r\n", i, (int)spec[i+1]);
 	    i += 2;
 	    break;
 	case ERL_DRV_UINT:
-	    fprintf(f, "%d: UINT %u\r\n", i, (unsigned)spec[1]);
+	    fprintf(f, "%d: UINT %u\r\n", i, (unsigned)spec[i+1]);
 	    i += 2;
 	    break;
 	case ERL_DRV_ATOM:
-	    fprintf(f, "%d: ATOM %u\r\n", i, (unsigned)spec[1]);
+	    fprintf(f, "%d: ATOM %u\r\n", i, (unsigned)spec[i+1]);
 	    i += 2;
 	    break;
 	case ERL_DRV_PORT:
-	    fprintf(f, "%d: PORT %u\r\n", i, (unsigned)spec[1]);
+	    fprintf(f, "%d: PORT %u\r\n", i, (unsigned)spec[i+1]);
 	    i += 2;
 	    break;
 	case ERL_DRV_PID:
-	    fprintf(f, "%d: PID %u\r\n", i, (unsigned)spec[1]);
+	    fprintf(f, "%d: PID %u\r\n", i, (unsigned)spec[i+1]);
 	    i += 2;
 	    break;
 	case ERL_DRV_TUPLE:
-	    fprintf(f, "%d: TUPLE %u\r\n", i,(unsigned)spec[1]);
+	    fprintf(f, "%d: TUPLE %u\r\n", i,(unsigned)spec[i+1]);
 	    i += 2;
 	    break;
 	case ERL_DRV_LIST:
-	    fprintf(f, "%d: LIST %u\r\n", i, (unsigned)spec[1]);
+	    fprintf(f, "%d: LIST %u\r\n", i, (unsigned)spec[i+1]);
 	    i += 2;
 	    break;
 	case ERL_DRV_INT64:
 	    fprintf(f, "%d: INT64 %" PRId64 "\r\n", i,
-		    *(int64_t*)spec[1]);
+		    *(int64_t*)spec[i+1]);
 	    i += 2;
 	    break;	    
 	case ERL_DRV_UINT64:
 	    fprintf(f, "%d: UINT64 %" PRIu64 "\r\n", i,
-		    *(uint64_t*)spec[1]);
+		    *(uint64_t*)spec[i+1]);
 	    i += 2;
 	    break;
 	case ERL_DRV_FLOAT:
 	    fprintf(f, "%d: FLOAT %f\r\n", i,
-		    *(double*)spec[1]);
+		    *(double*)spec[i+1]);
 	    i += 2;
 	    break;
 	case ERL_DRV_STRING:
