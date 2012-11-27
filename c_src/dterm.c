@@ -77,12 +77,12 @@ int dterm_dump(FILE* f, ErlDrvTermData* spec, int len)
 	    break;
 	case ERL_DRV_INT64:
 	    fprintf(f, "%d: INT64 %" PRId64 "\r\n", i,
-		    *(ErlDrvSInt64*)spec[1]);
+		    *(int64_t*)spec[1]);
 	    i += 2;
 	    break;	    
 	case ERL_DRV_UINT64:
 	    fprintf(f, "%d: UINT64 %" PRIu64 "\r\n", i,
-		    *(ErlDrvUInt64*)spec[1]);
+		    *(uint64_t*)spec[1]);
 	    i += 2;
 	    break;
 	case ERL_DRV_FLOAT:
