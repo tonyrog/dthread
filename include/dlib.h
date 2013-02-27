@@ -52,7 +52,6 @@ extern size_t dlib_total_allocated(void);
 	}								\
     } while(0)
 	
-
 #define DEBUGF(args...) DLOG(DLOG_DEBUG,__FILE__,__LINE__,args)
 #define INFOF(args...)  DLOG(DLOG_INFO,__FILE__,__LINE__,args)
 #define NOTICEF(args...)  DLOG(DLOG_NOTICE,__FILE__,__LINE__,args)
