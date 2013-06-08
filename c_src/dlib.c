@@ -19,6 +19,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <memory.h>
+#include <errno.h>
 
 #include "../include/dlib.h"
 
@@ -231,11 +232,13 @@ void dlib_emit_error(int level, char* file, int line, ...)
 
     if ((level == DLOG_EMERGENCY) ||
 	((dlib_debug_level >= 0) && (level <= dlib_debug_level))) {
+	int save_errno = errno;
 	va_start(ap, line);
 	fmt = va_arg(ap, char*);
 	fprintf(stderr, "%s:%d: ", file, line); 
 	vfprintf(stderr, fmt, ap);
 	fprintf(stderr, "\r\n");
 	va_end(ap);
+	errno = save_errno;
     }
 }
