@@ -76,6 +76,8 @@ typedef struct _dthread_t {
     ErlDrvEvent    iq_signal[2]; // event signaled when items is enqueued
 } dthread_t;
 
+#define ERL_DRV_EXCEP  (1 << 7)
+
 typedef struct _dthread_poll_event_t {
     ErlDrvEvent event;
     int events;          // ERL_DRV_READ | WRITE

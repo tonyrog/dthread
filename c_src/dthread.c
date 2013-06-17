@@ -490,6 +490,8 @@ int dthread_poll(dthread_t* thr, dthread_poll_event_t* events, size_t* nevents,
 	    fd = DTHREAD_EVENT(events[i].event);
 	    if (FD_ISSET(fd, &readfds) || FD_ISSET(fd, &errorfds)) {
 		events[i].revents |= ERL_DRV_READ;
+		if (FD_ISSET(fd, &errorfds))
+		    events[i].revents |= ERL_DRV_EXCEP;
 		fd_ready = 1;
 	    }
 	    if (FD_ISSET(fd, &writefds)) {
