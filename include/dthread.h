@@ -22,6 +22,11 @@ struct _dthread_t;
 #include "erl_driver.h"
 #include "dterm.h"
 
+// Hack to handle R15 driver used with pre R15 driver
+#if ERL_DRV_EXTENDED_MAJOR_VERSION == 1
+typedef int  ErlDrvSizeT;
+typedef int  ErlDrvSSizeT;
+#endif
 
 #ifdef __WIN32__
 #include <windows.h>

@@ -17,6 +17,7 @@
 #ifndef __DLIB_H__
 #define __DLIB_H__
 
+#include <string.h>
 #include "erl_driver.h"
 
 extern void dlib_init(void);
