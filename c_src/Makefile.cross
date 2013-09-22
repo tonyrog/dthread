@@ -9,20 +9,31 @@ ERLDIR	:= $(shell erl -noshell -eval "io:format([126,115,126,110],[code:root_dir
 ERL_C_INCLUDE_DIR := $(ERLDIR)/usr/include
 CC = $(TARGET)-gcc
 LD = $(TARGET)-ld
-PRIVDIR=../priv
+PRIVDIR=../priv/$(TARGET)
+OBJDIR=$(TARGET)
 
-OBJS = dlib.o dterm.o dthread.o dthread_drv.o
+OBJS = \
+     $(OBJDIR)/dlib.o \
+     $(OBJDIR)/dterm.o \
+     $(OBJDIR)/dthread.o \
+     $(OBJDIR)/dthread_drv.o
 
 LDFLAGS = -shared -fpic
 
-all : $(PRIVDIR)/dthread_drv.so
+all : $(OBJDIR) $(PRIVDIR) $(OBJS) $(PRIVDIR)/dthread_drv.so
 
 override CFLAGS += -Wall -Wextra -Wswitch-default -Wswitch-enum -I$(ERL_C_INCLUDE_DIR) -DDLOG_DEFAULT=DLOG_NONE
+
+$(OBJDIR):
+	@mkdir -p $(OBJDIR)
+
+$(PRIVDIR):
+	@mkdir -p $(PRIVDIR)
 
 $(PRIVDIR)/dthread_drv.so : $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^
 
-$(PRIVDIR)/*.o: *.c
+$(OBJDIR)/%.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 lean:
