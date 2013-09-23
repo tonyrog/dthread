@@ -28,6 +28,16 @@ typedef int  ErlDrvSizeT;
 typedef int  ErlDrvSSizeT;
 #endif
 
+#if (ERL_DRV_EXTENDED_MAJOR_VERSION > 2) || ((ERL_DRV_EXTENDED_MAJOR_VERSION == 2) && (ERL_DRV_EXTENDED_MINOR_VERSION >= 1))
+#define DOUTPUT_TERM(thr, message, len) erl_drv_output_term((thr)->dport,(message),(len))
+#define DSEND_TERM(thr, to, message, len) erl_drv_send_term((thr)->dport,(to),(message),(len))
+
+#else
+#define DOUTPUT_TERM(thr, message, len) driver_output_term((thr)->port,(message),(len))
+#define DSEND_TERM(thr, to, message, len) driver_send_term((thr)->port,(to),(message),(len))
+#endif
+
+
 #ifdef __WIN32__
 #include <windows.h>
 #define DTHREAD_EVENT(e) ((HANDLE)(e))

@@ -581,7 +581,7 @@ int dthread_port_send_term(dthread_t* thr, dthread_t* source,
 			   ErlDrvTermData* spec, int len)
 {
     if (thr->smp_support)
-	return driver_send_term(thr->port, target, spec, len);
+	return DSEND_TERM(thr, target, spec, len);
     else {
 	dmessage_t* mp;
 	int xsz = dterm_dyn_size(spec, len);
