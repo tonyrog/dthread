@@ -19,6 +19,9 @@
 
 #include <string.h>
 
+extern void dlog_init(void);
+extern void dlog_finish(void);
+
 extern void dlog_emit_error(int level, char* file, int line, ...);
 extern void dlog_set_debug(int level);
 
@@ -37,7 +40,7 @@ extern int dlog_debug_level;
 #define DLOG(level,file,line,args...) do { \
 	if (((level) == DLOG_EMERGENCY) ||				\
 	    ((dlog_debug_level >= 0) && ((level) <= dlog_debug_level))) { \
-	    dlig_emit_error((level),(file),(line),args);		\
+	    dlog_emit_error((level),(file),(line),args);		\
 	}								\
     } while(0)
 	

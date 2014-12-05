@@ -46,7 +46,7 @@ void dlog_emit_error(int level, char* file, int line, ...)
     char* fmt;
 
     if ((level == DLOG_EMERGENCY) ||
-	((dlog_debug_level >= 0) && (level <= dlog_debug_level))) {
+ 	((dlog_debug_level >= 0) && (level <= dlog_debug_level))) {
 	int save_errno = errno;
 	va_start(ap, line);
 	fmt = va_arg(ap, char*);
