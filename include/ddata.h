@@ -78,6 +78,14 @@ typedef struct _ddata_t
     ((((uint64_t)DDATA_GET_UINT32(ptr)) << 32) | \
      DDATA_GET_UINT32(ptr+4))
 
+#ifndef _QUAD_HIGHWORD
+#define _QUAD_HIGHWORD 1
+#endif
+
+#ifndef _QUAD_LOWWORD
+#define _QUAD_LOWWORD 0
+#endif
+
 #define DDATA_PUT_UINT64(ptr, n) do { \
 	union { uint64_t u64; uint32_t u32[2]; } iu; \
 	uint32_t n32;                                 \
