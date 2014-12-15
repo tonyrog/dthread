@@ -28,6 +28,25 @@ typedef struct _ddata_t
     uint8_t  buf[1];     /* used in some dynamic cases */
 } ddata_t;
 
+
+static void ddata_init(ddata_t* data, uint8_t* buf, uint32_t len, 
+		      uint32_t skip, int dynamic) __attribute__((unused));
+static void ddata_reset(ddata_t* data, uint32_t skip) __attribute__((unused));
+
+static ddata_t* ddata_new(uint8_t* buf, uint32_t len, uint32_t skip) __attribute__((unused));
+static void ddata_final(ddata_t* data) __attribute__((unused));
+static void ddata_free(ddata_t* data) __attribute__((unused));
+static void ddata_realloc(ddata_t* data, size_t need) __attribute__((unused));
+static inline size_t ddata_avail(ddata_t* data) __attribute__((unused));
+static inline intptr_t ddata_used(ddata_t* data)__attribute__((unused));
+static inline uint8_t* ddata_alloc(ddata_t* data, uint32_t len) __attribute__((unused));
+static inline void ddata_add(ddata_t* data, uint8_t* buf, uint32_t len) __attribute__((unused));
+static inline void ddata_forward(ddata_t* data, uint32_t len) __attribute__((unused));
+static inline void ddata_backward(ddata_t* data, uint32_t len) __attribute__((unused));
+static void ddata_send(ddata_t* data, int fd) __attribute__((unused));
+
+
+
 #define BOOLEAN        0  /* uint8_t */
 #define UINT8          1  /* uint8_t */
 #define UINT16         2  /* uint16_t */
@@ -109,7 +128,8 @@ typedef struct _ddata_t
 	n32=fu.u32[_QUAD_LOWWORD]; DDATA_PUT_UINT32((ptr)+4, n32); \
     } while(0)
 
-static void ddata_reset(ddata_t* data, uint32_t skip)
+
+static void ddata_reset(ddata_t* data, uint32_t skip) 
 {
     data->ptr = data->base + skip;
 }
