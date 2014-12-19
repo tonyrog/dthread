@@ -35,6 +35,8 @@ typedef struct _ddata_t
 
 static void ddata_init(ddata_t* data, uint8_t* buf, uint32_t len, 
 		       int dynamic) __attribute__((unused));
+static void ddata_r_init(ddata_t* data, uint8_t* buf, uint32_t len, 
+			 int dynamic) __attribute__((unused));
 static void ddata_reset(ddata_t* data) __attribute__((unused));
 
 static ddata_t* ddata_new(uint8_t* buf, uint32_t len) __attribute__((unused));
@@ -146,6 +148,15 @@ static void ddata_init(ddata_t* data, uint8_t* buf, uint32_t len, int dynamic)
     data->base = buf;
     data->rd   = data->base;
     data->wr   = data->base;
+    data->eob  = data->base + len;
+}
+
+static void ddata_r_init(ddata_t* data, uint8_t* buf, uint32_t len, int dynamic)
+{
+    data->dyn_alloc = dynamic;
+    data->base = buf;
+    data->rd   = data->base;
+    data->wr   = data->base + len;
     data->eob  = data->base + len;
 }
 
