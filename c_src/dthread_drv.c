@@ -21,6 +21,7 @@
 #include <stdio.h>
 
 #include "erl_driver.h"
+#include "../include/dlog.h"
 #include "../include/dthread.h"
 
 #include <ctype.h>
