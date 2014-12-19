@@ -16,36 +16,41 @@
  ****** END COPYRIGHT ********************************************************/
 
 #ifndef __DDATA_H__
+#define __DDATA_H__
+
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "dlib.h"
+
 typedef struct _ddata_t
 {
-    uint8_t  dynamic;   /* malloced when dynamic==1 */
+    int dyn_alloc;
     uint8_t* base;       /* base pointer */
-    uint8_t* ptr;        /* current insertion point */
-    uint8_t* ptr_end;    /* end of buffer (+1) */
+    uint8_t* rd;         /* read pointer */
+    uint8_t* wr;         /* write pointer */
+    uint8_t* eob;        /* end of buffer (+1) */
     uint8_t  buf[1];     /* used in some dynamic cases */
 } ddata_t;
 
-
 static void ddata_init(ddata_t* data, uint8_t* buf, uint32_t len, 
-		      uint32_t skip, int dynamic) __attribute__((unused));
-static void ddata_reset(ddata_t* data, uint32_t skip) __attribute__((unused));
+		       int dynamic) __attribute__((unused));
+static void ddata_reset(ddata_t* data) __attribute__((unused));
 
-static ddata_t* ddata_new(uint8_t* buf, uint32_t len, uint32_t skip) __attribute__((unused));
+static ddata_t* ddata_new(uint8_t* buf, uint32_t len) __attribute__((unused));
 static void ddata_final(ddata_t* data) __attribute__((unused));
 static void ddata_free(ddata_t* data) __attribute__((unused));
-static void ddata_realloc(ddata_t* data, size_t need) __attribute__((unused));
-static inline size_t ddata_avail(ddata_t* data) __attribute__((unused));
+static int ddata_compact(ddata_t* data) __attribute__((unused));
+static int ddata_realloc(ddata_t* data, size_t need) __attribute__((unused));
+static inline size_t ddata_r_avail(ddata_t* data) __attribute__((unused));
+static inline size_t ddata_w_avail(ddata_t* data) __attribute__((unused));
+
 static inline intptr_t ddata_used(ddata_t* data)__attribute__((unused));
-static inline uint8_t* ddata_alloc(ddata_t* data, uint32_t len) __attribute__((unused));
+static inline uint8_t* ddata_alloc(ddata_t* data, size_t len) __attribute__((unused));
 static inline void ddata_add(ddata_t* data, uint8_t* buf, uint32_t len) __attribute__((unused));
 static inline void ddata_forward(ddata_t* data, uint32_t len) __attribute__((unused));
 static inline void ddata_backward(ddata_t* data, uint32_t len) __attribute__((unused));
 static void ddata_send(ddata_t* data, int fd) __attribute__((unused));
-
-
 
 #define BOOLEAN        0  /* uint8_t */
 #define UINT8          1  /* uint8_t */
@@ -129,94 +134,123 @@ static void ddata_send(ddata_t* data, int fd) __attribute__((unused));
     } while(0)
 
 
-static void ddata_reset(ddata_t* data, uint32_t skip) 
+static void ddata_reset(ddata_t* data) 
 {
-    data->ptr = data->base + skip;
+    data->wr = data->base;
+    data->rd = data->wr;
 }
 
-static void ddata_init(ddata_t* data, uint8_t* buf, uint32_t len, 
-		      uint32_t skip, int dynamic)
+static void ddata_init(ddata_t* data, uint8_t* buf, uint32_t len, int dynamic)
 {
-    data->dynamic = dynamic;
-    data->base    = buf;
-    data->ptr     = buf + skip;
-    data->ptr_end = buf + len;
+    data->dyn_alloc = dynamic;
+    data->base = buf;
+    data->rd   = data->base;
+    data->wr   = data->base;
+    data->eob  = data->base + len;
 }
 
-/* allocate a comi Data and buffer (non growing) */
-static ddata_t* ddata_new(uint8_t* buf, uint32_t len, uint32_t skip)
+static ddata_t* ddata_new(uint8_t* buf, uint32_t len)
 {
-    ddata_t* data = malloc(sizeof(ddata_t)+len-1);
+    ddata_t* data = DALLOC(sizeof(ddata_t)+len-1);
     if (data == NULL)
 	return NULL;
-    if (buf != NULL)
-	memcpy(data->buf, buf, len);
-    data->dynamic = 0;    /* otherwise reallocation wont work */
+    data->dyn_alloc = 0;    /* dyn_alloc=1 only when buffer is separate! */
     data->base = data->buf;
-    data->ptr = data->buf + skip;
-    data->ptr_end = data->buf + len;
+    data->rd   = data->base;
+    data->wr   = data->base;
+    if (buf != NULL) {
+	memcpy(data->rd, buf, len);
+        data->wr += len;
+    }
+    data->eob  = data->base + len;
     return data;
 }
 
 static void ddata_final(ddata_t* data)
 {
-    if (data->dynamic) {
-	if (data->base) {
-	    free(data->base);
-	    data->base = NULL;
-	}
+    if (data->dyn_alloc && (data->base != NULL)) {
+	DFREE(data->base);
+	data->base = NULL;
     }
 }
 
 static void ddata_free(ddata_t* data)
 {
     ddata_final(data);
-    free(data);
+    DFREE(data);
 }
-    
 
-static void ddata_realloc(ddata_t* data, size_t need)
+static int ddata_compact(ddata_t* data)
 {
-    uint8_t* base0 = data->base;
-    size_t size  = data->ptr_end - base0;
-    size_t used  = data->ptr - base0;
-    size_t avail = data->ptr_end - data->ptr;
+    size_t used, roffs, woffs;
+
+    roffs = data->rd - data->base;
+    woffs = data->wr - data->base;
+    used  = woffs-roffs;
+    memmove(data->base, data->rd, used);
+    data->rd = data->base;
+    data->wr = data->base+used;
+    return 0;
+}
+
+static int ddata_realloc(ddata_t* data, size_t need)
+{
+    uint8_t* base0;
+    size_t roffs, woffs;
+    size_t wavail = data->eob - data->wr;
+    size_t old_size;
     size_t new_size;
 
-    if (avail >= need)
-	return;
+    if (wavail >= need)
+	return 0;
     if (need < 256)
 	need += 256;
-    new_size = size + need;
-    if (data->dynamic)
-	data->base = realloc(base0, new_size);
-    else {
-	data->base = malloc(new_size);
-	memcpy(data->base, base0, used);
+    old_size = data->eob - data->base;
+    new_size = old_size + need;
+    base0 = data->base;
+    roffs = data->rd - data->base;
+    woffs = data->wr - data->base;
+    if (data->dyn_alloc) {
+	void* ptr = DREALLOC(base0, new_size);
+	if (ptr == NULL)
+	    return -1;
+	data->base = ptr;
     }
-    data->ptr     = data->base + used;
-    data->ptr_end = data->base + new_size;
-    data->dynamic = 1;
+    else {
+	if ((data->base = DALLOC(new_size)) == NULL)
+	    return -1;
+	memcpy(data->base, base0, old_size);
+    }
+    data->rd   = data->base + roffs;
+    data->wr   = data->base + woffs;
+    data->eob  = data->base + new_size;
+    data->dyn_alloc = 1;
+    return 0;
 }
 
-static inline size_t ddata_avail(ddata_t* data)
+static inline size_t ddata_r_avail(ddata_t* data)
 {
-    return (data->ptr_end - data->ptr);
+    return (data->wr - data->rd);
+}
+
+static inline size_t ddata_w_avail(ddata_t* data)
+{
+    return (data->eob - data->wr);
 }
 
 static inline intptr_t ddata_used(ddata_t* data)
 {
-    return (data->ptr - data->base);
+    return (data->wr - data->rd);
 }
 
-static inline uint8_t* ddata_alloc(ddata_t* data, uint32_t len)
+static inline uint8_t* ddata_alloc(ddata_t* data, size_t len)
 {
     uint8_t* ptr;
 
-    if (ddata_avail(data) < len)
+    if (ddata_w_avail(data) < len)
 	ddata_realloc(data, len);
-    ptr = data->ptr;
-    data->ptr += len;
+    ptr = data->wr;
+    data->wr += len;
     return ptr;
 }
 
@@ -236,18 +270,18 @@ static inline void ddata_forward(ddata_t* data, uint32_t len)
 
 static inline void ddata_backward(ddata_t* data, uint32_t len)
 {
-    uint8_t* ptr = data->ptr - len;
+    uint8_t* ptr = data->wr - len;
     if (ptr < data->base)
-	data->ptr = data->base;
+	data->wr = data->base;
     else
-	data->ptr = ptr;
+	data->wr = ptr;
 }
 
 static void ddata_send(ddata_t* data, int fd)
 {
-    uint32_t len = (data->ptr - data->base) - 4;
-    DDATA_PUT_UINT32(data->base, len);
-    write(fd, data->base, len+4);
+    uint32_t len = (data->wr - data->rd) - 4;
+    DDATA_PUT_UINT32(data->rd, len);
+    write(fd, data->rd, len+4);
 }
 
 /*******************************************************************************
@@ -425,49 +459,49 @@ static inline void ddata_put_binary(ddata_t* data, const uint8_t* buf, uint32_t 
 
 static inline int ddata_get_boolean(ddata_t* data, uint8_t* val)
 {
-    if (ddata_avail(data) < sizeof(uint8_t)) return 0;
-    *val = (DDATA_GET_UINT8(data->ptr) != 0);
-    data->ptr += sizeof(uint8_t);
+    if (ddata_r_avail(data) < sizeof(uint8_t)) return 0;
+    *val = (DDATA_GET_UINT8(data->rd) != 0);
+    data->rd += sizeof(uint8_t);
     return 1;
 }
 
 static inline int ddata_get_uint8(ddata_t* data, uint8_t* val)
 {
-    if (ddata_avail(data) < sizeof(uint8_t)) return 0;
-    *val = DDATA_GET_UINT8(data->ptr);
-    data->ptr += sizeof(uint8_t);
+    if (ddata_r_avail(data) < sizeof(uint8_t)) return 0;
+    *val = DDATA_GET_UINT8(data->rd);
+    data->rd += sizeof(uint8_t);
     return 1;
 }
 
 static inline int ddata_get_uint16(ddata_t* data, uint16_t* val)
 {
-    if (ddata_avail(data) < sizeof(uint16_t)) return 0;
-    *val = DDATA_GET_UINT16(data->ptr);
-    data->ptr += sizeof(uint16_t);
+    if (ddata_r_avail(data) < sizeof(uint16_t)) return 0;
+    *val = DDATA_GET_UINT16(data->rd);
+    data->rd += sizeof(uint16_t);
     return 1;
 }
 
 static inline int ddata_get_uint32(ddata_t* data, uint32_t* val)
 {
-    if (ddata_avail(data) < sizeof(uint32_t)) return 0;
-    *val = DDATA_GET_UINT32(data->ptr);
-    data->ptr += sizeof(uint32_t);
+    if (ddata_r_avail(data) < sizeof(uint32_t)) return 0;
+    *val = DDATA_GET_UINT32(data->rd);
+    data->rd += sizeof(uint32_t);
     return 1;
 }
 
 static inline int ddata_get_int32(ddata_t* data, int32_t* val)
 {
-    if (ddata_avail(data) < sizeof(int32_t)) return 0;
-    *val = (int32_t) DDATA_GET_UINT32(data->ptr);
-    data->ptr += sizeof(int32_t);
+    if (ddata_r_avail(data) < sizeof(int32_t)) return 0;
+    *val = (int32_t) DDATA_GET_UINT32(data->rd);
+    data->rd += sizeof(int32_t);
     return 1;
 }
 
 static inline int ddata_get_uint64(ddata_t* data, uint64_t* val)
 {
-    if (ddata_avail(data) < sizeof(uint64_t)) return 0;
-    *val = DDATA_GET_UINT64(data->ptr);
-    data->ptr += sizeof(uint64_t);
+    if (ddata_r_avail(data) < sizeof(uint64_t)) return 0;
+    *val = DDATA_GET_UINT64(data->rd);
+    data->rd += sizeof(uint64_t);
     return 1;
 }
 #endif
