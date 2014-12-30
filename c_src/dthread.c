@@ -23,6 +23,8 @@
  */
 
 #include "../include/dthread.h"
+#include "../include/dlog.h"
+
 
 #ifdef __WIN32__
 #include <windows.h>
